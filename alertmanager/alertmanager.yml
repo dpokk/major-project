@@ -1,0 +1,35 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  receiver: "sentry-webhook"
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 10m
+  repeat_interval: 4h
+  routes:
+    # Route 1: Raw alert → Slack #raw-monitoring (noisy, unfiltered)
+    - receiver: "raw-slack"
+      continue: true
+
+    # Route 2: Alert → Sentry Agent webhook (for AI pipeline)
+    - receiver: "sentry-webhook"
+
+receivers:
+  # Raw noise → Slack directly from Alertmanager
+  - name: "raw-slack"
+    slack_configs:
+      - api_url: "https://hooks.slack.com/services/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"
+        channel: "#raw-monitoring"
+        title: '{{ .CommonAnnotations.summary }}'
+        text: >-
+          *Alert:* {{ .CommonLabels.alertname }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Description:* {{ .CommonAnnotations.description }}
+        send_resolved: true
+
+  # AI pipeline → Sentry Agent for triage + Gemini RCA
+  - name: "sentry-webhook"
+    webhook_configs:
+      - url: "http://sentry-agent:8001/webhook/alert"
+        send_resolved: true

@@ -1,0 +1,11 @@
+groups:
+  - name: sentinel_alerts
+    rules:
+      - alert: CriticalServiceFailure
+        expr: rate(http_errors_total[30s]) > 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical service failure detected in victim-app"
+          description: "The victim-app error counter is increasing. Current error rate: {{ $value }} errors/sec."

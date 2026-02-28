@@ -1,0 +1,30 @@
+# Environments
+.env
+.venv/
+venv/
+env/
+ENV/
+
+# Logs and Caches
+*.log
+logs/
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+
+# Docker and OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+victim-logs/
+data/

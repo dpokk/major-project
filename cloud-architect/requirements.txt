@@ -1,0 +1,5 @@
+fastapi==0.115.8
+uvicorn==0.34.0
+httpx==0.28.1
+groq>=0.12.0
+tenacity>=8.2.0

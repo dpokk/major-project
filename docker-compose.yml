@@ -1,0 +1,102 @@
+# ============================================================================
+# Project Sentinel MVP — Docker Compose
+# Autonomous Incident Response: Metric Breach → Triage → RCA → Slack
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # FR1: Victim Application (Flask)
+  # The monitored microservice that exposes /metrics and /trigger-error
+  # --------------------------------------------------------------------------
+  victim-app:
+    build: ./victim-app
+    container_name: sentinel-victim-app
+    ports:
+      - "5001:5001"
+    volumes:
+      - victim-logs:/app/logs
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # FR2: Prometheus — Metrics scraping & alerting
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sentinel-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    networks:
+      - sentinel-net
+    depends_on:
+      - victim-app
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # FR2: Alertmanager — Routes alerts to Sentry Agent webhook
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: sentinel-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - sentinel-net
+    depends_on:
+      - sentry-agent
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # FR3: Sentry Agent (Tier 1 — Privacy Guard)
+  # Receives alerts, fetches logs, sanitizes PII, forwards via MCP
+  # --------------------------------------------------------------------------
+  sentry-agent:
+    build: ./sentry-agent
+    container_name: sentinel-sentry-agent
+    ports:
+      - "8001:8001"
+    volumes:
+      - victim-logs:/app/logs:ro
+    environment:
+      - CLOUD_ARCHITECT_URL=http://cloud-architect:8002/mcp/tools/call
+      - VICTIM_LOG_PATH=/app/logs/app.log
+    networks:
+      - sentinel-net
+    depends_on:
+      - victim-app
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # FR4: Cloud Architect (Tier 2 — The Brain)
+  # Receives redacted payload, queries Groq (Llama 3.3 70B) for RCA, posts to Slack
+  # --------------------------------------------------------------------------
+  cloud-architect:
+    build: ./cloud-architect
+    container_name: sentinel-cloud-architect
+    ports:
+      - "8002:8002"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-llama-3.3-70b-versatile}
+      - SENTINEL_OPS_WEBHOOK=${SENTINEL_OPS_WEBHOOK}
+      - REMEDIATION_URL=http://cloud-architect:8002/remediate
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+# ============================================================================
+# Shared Resources
+# ============================================================================
+volumes:
+  victim-logs:
+    driver: local
+
+networks:
+  sentinel-net:
+    driver: bridge
