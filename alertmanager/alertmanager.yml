@@ -5,8 +5,8 @@ route:
   receiver: "sentry-webhook"
   group_by: ["alertname"]
   group_wait: 10s
-  group_interval: 10m
-  repeat_interval: 4h
+  group_interval: 30s
+  repeat_interval: 30m
   routes:
     # Route 1: Raw alert → Slack #raw-monitoring (noisy, unfiltered)
     - receiver: "raw-slack"

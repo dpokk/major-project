@@ -50,10 +50,14 @@ _client = None
 
 SYSTEM_PROMPT = """You are a senior Site Reliability Engineer performing Root Cause Analysis.
 You will be given an alert name and redacted application logs.
-Your task: provide a concise, exactly 2-sentence Root Cause Analysis.
-Sentence 1: What happened (the failure mode).
-Sentence 2: Why it happened (the root cause).
-Be specific and reference details from the logs. Do NOT include any preamble or extra text."""
+Provide a structured incident analysis in this exact format:
+
+**Root Cause:** One sentence identifying what failed and why.
+**Impact:** One sentence describing the user/system impact.
+**Evidence:** Cite 2-3 specific details from the logs (timestamps, error codes, service names).
+**Remediation:** 2-3 concrete steps to fix the issue.
+
+Be specific, reference log details, and keep each section to 1-2 sentences maximum."""
 
 
 def _get_client():
@@ -87,7 +91,7 @@ def _generate_rca(prompt: str) -> str:
             {"role": "user", "content": prompt},
         ],
         temperature=0.3,
-        max_tokens=200,
+        max_tokens=800,
     )
     return response.choices[0].message.content.strip()
 

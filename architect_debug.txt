@@ -1,0 +1,33 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8002 (Press CTRL+C to quit)
+2026-02-28 16:32:23,719 | INFO | cloud-architect | === MCP TOOL CALL RECEIVED ===
+2026-02-28 16:32:23,719 | INFO | cloud-architect | Method: tools/call
+2026-02-28 16:32:23,719 | INFO | cloud-architect | Tool: analyze_incident | Alert: CPUSpikeDetected
+2026-02-28 16:32:23,719 | INFO | cloud-architect | Redacted logs length: 3639 chars
+2026-02-28 16:32:23,719 | INFO | cloud-architect | Querying Groq model=llama-3.3-70b-versatile
+2026-02-28 16:32:23,739 | INFO | cloud-architect | Groq client initialized for model=llama-3.3-70b-versatile
+2026-02-28 16:32:24,719 | INFO | httpx | HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-28 16:32:24,734 | INFO | cloud-architect | RCA response: **Root Cause:** The CPU spike was caused by a memory leak detected at 16:18:59.251805+00:00, which led to a cascade of failures, including dependency unreachability and disk space critical errors. 
+**Impact:** The user impact was significant, with multiple upstream services becoming unreachable, resulting in a degraded system state and failed requests. 
+**Evidence:** The memory leak was first reported at 16:18:59.251805+00:00 with a heap usage of 50MB, and subsequent logs showed dependency unreachability for inventory-service and auth-service, as well as a disk space critical error at 16:19:05.429885+00:00. 
+**Remediation:** To fix the issue, we need to identify and patch the memory leak, increase the disk space available to the system, and implement more robust failover strategies to prevent cascade failures, such as circuit breakers and load balancing.
+2026-02-28 16:32:25,154 | INFO | httpx | HTTP Request: POST https://hooks.slack.com/services/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 "HTTP/1.1 200 OK"
+2026-02-28 16:32:25,155 | INFO | cloud-architect | ✅ Slack notification sent successfully
+2026-02-28 16:32:25,155 | INFO | cloud-architect | === RCA COMPLETE ===
+2026-02-28 16:32:25,155 | INFO | cloud-architect | Result: **Root Cause:** The CPU spike was caused by a memory leak detected at 16:18:59.251805+00:00, which led to a cascade of failures, including dependency unreachability and disk space critical errors. 
+**Impact:** The user impact was significant, with multiple upstream services becoming unreachable, resulting in a degraded system state and failed requests. 
+**Evidence:** The memory leak was first reported at 16:18:59.251805+00:00 with a heap usage of 50MB, and subsequent logs showed dependency unreachability for inventory-service and auth-service, as well as a disk space critical error at 16:19:05.429885+00:00. 
+**Remediation:** To fix the issue, we need to identify and patch the memory leak, increase the disk space available to the system, and implement more robust failover strategies to prevent cascade failures, such as circuit breakers and load balancing.
+2026-02-28 16:44:04,371 | INFO | cloud-architect | === MCP TOOL CALL RECEIVED ===
+2026-02-28 16:44:04,371 | INFO | cloud-architect | Method: tools/call
+2026-02-28 16:44:04,371 | INFO | cloud-architect | Tool: analyze_incident | Alert: DependencyFailure
+2026-02-28 16:44:04,371 | INFO | cloud-architect | Redacted logs length: 3683 chars
+2026-02-28 16:44:04,371 | INFO | cloud-architect | Querying Groq model=llama-3.3-70b-versatile
+2026-02-28 16:44:05,195 | INFO | httpx | HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-02-28 16:44:05,198 | INFO | cloud-architect | RCA response: **Root Cause:** The inventory-service and auth-service dependencies failed due to connection refusals, causing a cascade failure, and this failure was further exacerbated by a disk space critical error that occurred 3 seconds after the initial failure, with the disk usage reaching 96.1% and resulting in a write failure. The connection refusals and disk space error were likely caused by a combination of factors, including high CPU usage and saturated cores, as evidenced by the CPU spike detected at 93.6% usage and the process runaway warning with 142 threads and 347.2s of CPU time.
+2026-02-28 16:44:05,769 | INFO | httpx | HTTP Request: POST https://hooks.slack.com/services/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 "HTTP/1.1 200 OK"
+2026-02-28 16:44:05,770 | INFO | cloud-architect | ✅ Slack notification sent successfully
+2026-02-28 16:44:05,770 | INFO | cloud-architect | === RCA COMPLETE ===
+2026-02-28 16:44:05,770 | INFO | cloud-architect | Result: **Root Cause:** The inventory-service and auth-service dependencies failed due to connection refusals, causing a cascade failure, and this failure was further exacerbated by a disk space critical error that occurred 3 seconds after the initial failure, with the disk usage reaching 96.1% and resulting in a write failure. The connection refusals and disk space error were likely caused by a combination of factors, including high CPU usage and saturated cores, as evidenced by the CPU spike detected at 93.6% usage and the process runaway warning with 142 threads and 347.2s of CPU time.

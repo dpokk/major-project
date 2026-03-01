@@ -2,7 +2,7 @@
 Sentry Agent — Project Sentinel MVP (Tier 1 : Privacy Guard)
 FastAPI server that:
   1. Receives Alertmanager webhook payloads
-  2. Fetches the last 20 lines of victim-app logs (shared volume)
+  2. Fetches victim-app logs FILTERED by alert type (alert-aware grep)
   3. Sanitizes PII (IPs, UUIDs) via regex
   4. Forwards redacted payload to Cloud Architect using MCP-style JSON
 """
@@ -23,10 +23,10 @@ CLOUD_ARCHITECT_URL = os.environ.get(
     "CLOUD_ARCHITECT_URL", "http://cloud-architect:8002/mcp/tools/call"
 )
 LOG_FILE_PATH = os.environ.get("VICTIM_LOG_PATH", "/app/logs/app.log")
-LOG_TAIL_LINES = 10
-MAX_LOG_BYTES = 2048  # 2KB hard cap to reduce token usage
+LOG_TAIL_LINES = 20
+MAX_LOG_BYTES = 4096  # 4KB — Groq gives us 12K TPM headroom
 
-app = FastAPI(title="Sentry Agent", version="1.0.0")
+app = FastAPI(title="Sentry Agent", version="2.0.0")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,22 +56,102 @@ def sanitize(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Log Fetcher — reads last N lines from shared volume
+# Alert-Aware Log Filtering
+# Maps each Prometheus alert name to keywords that identify its relevant logs.
+# When an alert fires, only log lines matching these keywords are sent to the
+# Cloud Architect — just like production ELK/Splunk/Datadog pipelines filter
+# logs by service, component, and severity before forwarding to responders.
 # ---------------------------------------------------------------------------
-def fetch_victim_logs(n: int = LOG_TAIL_LINES) -> str:
-    """Return the last *n* lines from the victim-app log file."""
+ALERT_LOG_KEYWORDS = {
+    "CriticalServiceFailure": [
+        "CRITICAL FAILURE",
+        "Stack trace context",
+        "Recovery attempted",
+    ],
+    "MemoryLeakDetected": [
+        "MEMORY LEAK",
+        "GC pressure",
+        "Auto-scaling requested",
+    ],
+    "HighLatencyAlert": [
+        "HIGH LATENCY",
+        "Database query slow",
+        "Circuit breaker",
+    ],
+    "DependencyFailure": [
+        "CASCADE FAILURE",
+        "Dependency unreachable",
+        "Failover initiated",
+    ],
+    "CPUSpikeDetected": [
+        "CPU SPIKE",
+        "Process runaway",
+        "Throttling applied",
+    ],
+}
+
+# Fallback keywords for unknown alerts or disk-full (no dedicated alert rule)
+DEFAULT_KEYWORDS = ["ERROR", "CRITICAL", "WARNING"]
+
+
+def _matches_alert(line: str, keywords: list[str]) -> bool:
+    """Check if a log line contains any of the given keywords."""
+    return any(kw in line for kw in keywords)
+
+
+# ---------------------------------------------------------------------------
+# Log Fetcher — reads and filters logs from shared volume
+# ---------------------------------------------------------------------------
+def fetch_victim_logs(alert_name: str, n: int = LOG_TAIL_LINES) -> str:
+    """
+    Return filtered log lines relevant to the given alert.
+
+    Strategy:
+    1. Read all lines from the victim-app log file
+    2. Filter to only lines matching the alert's keywords
+    3. Take the last N matching lines
+    4. Enforce byte cap
+    """
     try:
         if not os.path.exists(LOG_FILE_PATH):
             logger.warning("Log file not found at %s", LOG_FILE_PATH)
             return "[LOG FILE NOT FOUND]"
 
         with open(LOG_FILE_PATH, "r") as fh:
-            lines = fh.readlines()
+            all_lines = fh.readlines()
 
-        tail = lines[-n:] if len(lines) >= n else lines
+        total_lines = len(all_lines)
+
+        # Get keywords for this alert type
+        keywords = ALERT_LOG_KEYWORDS.get(alert_name, DEFAULT_KEYWORDS)
+        logger.info(
+            "Filtering %d log lines for alert=%s using keywords=%s",
+            total_lines, alert_name, keywords,
+        )
+
+        # Filter: keep only lines that match this alert's keywords
+        matching_lines = [
+            line for line in all_lines if _matches_alert(line, keywords)
+        ]
+
+        logger.info(
+            "Found %d matching lines (out of %d total)",
+            len(matching_lines), total_lines,
+        )
+
+        # If no matches found, fall back to last N lines (better than nothing)
+        if not matching_lines:
+            logger.warning(
+                "No keyword matches for alert=%s — falling back to last %d lines",
+                alert_name, n,
+            )
+            matching_lines = all_lines
+
+        # Take last N matching lines
+        tail = matching_lines[-n:] if len(matching_lines) >= n else matching_lines
         result = "".join(tail)
 
-        # Enforce 2KB payload cap
+        # Enforce byte cap
         if len(result.encode("utf-8")) > MAX_LOG_BYTES:
             result = result.encode("utf-8")[:MAX_LOG_BYTES].decode("utf-8", errors="ignore")
             logger.info("Log payload truncated to %d bytes", MAX_LOG_BYTES)
@@ -108,14 +188,14 @@ def build_mcp_payload(alert_name: str, redacted_logs: str) -> dict:
 # ---------------------------------------------------------------------------
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "sentry-agent"}
+    return {"status": "ok", "service": "sentry-agent", "version": "2.0.0"}
 
 
 @app.post("/webhook/alert")
 async def receive_alert(request: Request):
     """
     Alertmanager webhook receiver.
-    Pipeline: receive alert → fetch logs → sanitize → forward to Cloud Architect.
+    Pipeline: receive alert → fetch FILTERED logs → sanitize → forward to Cloud Architect.
     """
     payload = await request.json()
     logger.info("=== ALERT RECEIVED ===")
@@ -144,9 +224,9 @@ async def receive_alert(request: Request):
             logger.info("Alert %s resolved — skipping", alert_name)
             continue
 
-        # --- Step 1: Fetch raw logs ---
-        raw_logs = fetch_victim_logs()
-        logger.info("Fetched %d characters of raw logs", len(raw_logs))
+        # --- Step 1: Fetch FILTERED logs (alert-aware) ---
+        raw_logs = fetch_victim_logs(alert_name)
+        logger.info("Fetched %d characters of filtered logs", len(raw_logs))
 
         # --- Step 2: Sanitize PII ---
         redacted_logs = sanitize(raw_logs)

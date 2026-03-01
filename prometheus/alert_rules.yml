@@ -1,6 +1,7 @@
 groups:
   - name: sentinel_alerts
     rules:
+      # Scenario 0: Generic 500 errors (original)
       - alert: CriticalServiceFailure
         expr: rate(http_errors_total[30s]) > 0
         for: 10s
@@ -9,3 +10,43 @@ groups:
         annotations:
           summary: "Critical service failure detected in victim-app"
           description: "The victim-app error counter is increasing. Current error rate: {{ $value }} errors/sec."
+
+      # Scenario 1: Memory Leak
+      - alert: MemoryLeakDetected
+        expr: memory_usage_bytes > 400000000
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory leak detected in victim-app"
+          description: "Heap memory usage has exceeded 400MB. Current usage: {{ $value | humanize }}B."
+
+      # Scenario 2: High Latency
+      - alert: HighLatencyAlert
+        expr: histogram_quantile(0.95, rate(request_duration_seconds_bucket[1m])) > 3
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency detected in victim-app"
+          description: "P95 response time has exceeded 3 seconds. Current P95: {{ $value }}s."
+
+      # Scenario 3: Cascade / Dependency Failure
+      - alert: DependencyFailure
+        expr: rate(dependency_errors_total[30s]) > 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Upstream dependency failure in victim-app"
+          description: "Dependency error rate is increasing. Current rate: {{ $value }} errors/sec."
+
+      # Scenario 4: CPU Spike
+      - alert: CPUSpikeDetected
+        expr: cpu_usage_percent > 90
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU spike detected in victim-app"
+          description: "CPU usage has exceeded 90%. Current usage: {{ $value }}%."
