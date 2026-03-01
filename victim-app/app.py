@@ -1,7 +1,8 @@
 """
-Victim Application — Project Sentinel MVP (Phase 2)
+Victim Application — Project Sentinel (Phase 3 / Step 1)
 A Flask microservice with 6 failure scenarios for autonomous incident response testing.
-Exposes Prometheus metrics and writes PII-enriched logs for Sentry sanitization.
+Exposes Prometheus metrics and emits OTel-instrumented logs + traces.
+Backward-compatible: still writes to app.log for Phase 2 file-scraping fallback.
 """
 
 import logging
@@ -17,6 +18,16 @@ from prometheus_client import (
     Counter, Gauge, Histogram,
     generate_latest, CONTENT_TYPE_LATEST,
 )
+
+# OpenTelemetry SDK — Logs + Traces
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 
 # ---------------------------------------------------------------------------
 # App Setup
@@ -76,6 +87,35 @@ logger = logging.getLogger("victim-app")
 logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry Initialization (Traces + Logs → OTel Collector via OTLP/gRPC)
+# ---------------------------------------------------------------------------
+OTEL_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
+
+resource = Resource.create({
+    "service.name": "victim-app",
+    "service.version": "3.0.0",
+    "deployment.environment": "development",
+})
+
+# Tracer — each scenario creates a span
+trace_provider = TracerProvider(resource=resource)
+trace_provider.add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint=OTEL_ENDPOINT, insecure=True))
+)
+trace.set_tracer_provider(trace_provider)
+tracer = trace.get_tracer("victim-app", "3.0.0")
+
+# Log Provider — Python logger lines are exported to OTel Collector
+log_provider = LoggerProvider(resource=resource)
+log_provider.add_log_record_processor(
+    BatchLogRecordProcessor(OTLPLogExporter(endpoint=OTEL_ENDPOINT, insecure=True))
+)
+otel_handler = LoggingHandler(level=logging.INFO, logger_provider=log_provider)
+logger.addHandler(otel_handler)
+
+logger.info("OTel instrumentation active — exporting to %s", OTEL_ENDPOINT)
 
 # ---------------------------------------------------------------------------
 # Simulated state for memory leak scenario

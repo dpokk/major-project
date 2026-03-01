@@ -1,0 +1,32 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 10
+
+exporters:
+  # File exporter — queryable storage for Context Fetcher
+  file:
+    path: /data/otel-logs.json
+    rotation:
+      max_megabytes: 50
+
+  # Debug exporter — prints to collector stdout for verification
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]

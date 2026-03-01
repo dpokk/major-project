@@ -1,6 +1,6 @@
 # ============================================================================
-# Project Sentinel MVP — Docker Compose
-# Autonomous Incident Response: Metric Breach → Triage → RCA → Slack
+# Project Sentinel Phase 3 — Docker Compose
+# Enterprise Re-Architecture: OTel Telemetry + Context Fetcher + RCA Pipeline
 # ============================================================================
 
 services:
@@ -15,8 +15,12 @@ services:
       - "5001:5001"
     volumes:
       - victim-logs:/app/logs
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     networks:
       - sentinel-net
+    depends_on:
+      - otel-collector
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
@@ -66,10 +70,12 @@ services:
     environment:
       - CLOUD_ARCHITECT_URL=http://cloud-architect:8002/mcp/tools/call
       - VICTIM_LOG_PATH=/app/logs/app.log
+      - CONTEXT_FETCHER_URL=http://context-fetcher:8003/fetch-context
     networks:
       - sentinel-net
     depends_on:
       - victim-app
+      - context-fetcher
     restart: unless-stopped
 
   # --------------------------------------------------------------------------
@@ -90,11 +96,47 @@ services:
       - sentinel-net
     restart: unless-stopped
 
+  # --------------------------------------------------------------------------
+  # Phase 3: OTel Collector — Central Telemetry Hub
+  # Receives OTLP logs+traces from victim-app, exports to file for Context Fetcher
+  # --------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: sentinel-otel-collector
+    user: "0:0"
+    ports:
+      - "4317:4317"
+    volumes:
+      - ./otel-collector/otel-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - otel-data:/data
+    networks:
+      - sentinel-net
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Phase 3: Context Fetcher — Telemetry Retrieval Layer
+  # Queries OTel Collector data, returns structured context bundles
+  # --------------------------------------------------------------------------
+  context-fetcher:
+    build: ./context-fetcher
+    container_name: sentinel-context-fetcher
+    ports:
+      - "8003:8003"
+    volumes:
+      - otel-data:/data:ro
+    networks:
+      - sentinel-net
+    depends_on:
+      - otel-collector
+    restart: unless-stopped
+
 # ============================================================================
 # Shared Resources
 # ============================================================================
 volumes:
   victim-logs:
+    driver: local
+  otel-data:
     driver: local
 
 networks:

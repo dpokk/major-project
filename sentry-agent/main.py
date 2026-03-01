@@ -1,8 +1,8 @@
 """
-Sentry Agent — Project Sentinel MVP (Tier 1 : Privacy Guard)
+Sentry Agent — Project Sentinel Phase 3 (Tier 1 : Privacy Guard)
 FastAPI server that:
   1. Receives Alertmanager webhook payloads
-  2. Fetches victim-app logs FILTERED by alert type (alert-aware grep)
+  2. Fetches logs via Context Fetcher (OTel) or file-scraping (fallback)
   3. Sanitizes PII (IPs, UUIDs) via regex
   4. Forwards redacted payload to Cloud Architect using MCP-style JSON
 """
@@ -22,11 +22,14 @@ from fastapi.responses import JSONResponse
 CLOUD_ARCHITECT_URL = os.environ.get(
     "CLOUD_ARCHITECT_URL", "http://cloud-architect:8002/mcp/tools/call"
 )
+CONTEXT_FETCHER_URL = os.environ.get(
+    "CONTEXT_FETCHER_URL", "http://context-fetcher:8003/fetch-context"
+)
 LOG_FILE_PATH = os.environ.get("VICTIM_LOG_PATH", "/app/logs/app.log")
 LOG_TAIL_LINES = 20
 MAX_LOG_BYTES = 4096  # 4KB — Groq gives us 12K TPM headroom
 
-app = FastAPI(title="Sentry Agent", version="2.0.0")
+app = FastAPI(title="Sentry Agent", version="3.0.0")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -188,7 +191,30 @@ def build_mcp_payload(alert_name: str, redacted_logs: str) -> dict:
 # ---------------------------------------------------------------------------
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "sentry-agent", "version": "2.0.0"}
+    return {"status": "ok", "service": "sentry-agent", "version": "3.0.0"}
+
+
+# ---------------------------------------------------------------------------
+# Dual-Path Log Retrieval: OTel Context Fetcher → File Scraping Fallback
+# ---------------------------------------------------------------------------
+async def fetch_from_context_fetcher(alert_name: str) -> str:
+    """
+    Query the Context Fetcher for OTel-sourced logs.
+    Returns log text if successful, raises Exception on failure.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            CONTEXT_FETCHER_URL,
+            json={"alert_name": alert_name, "service": "victim-app"},
+        )
+        resp.raise_for_status()
+        context = resp.json()
+
+    recent_logs = context.get("recent_logs", [])
+    if not recent_logs:
+        raise ValueError("Context Fetcher returned empty logs")
+
+    return "\n".join(recent_logs)
 
 
 @app.post("/webhook/alert")
@@ -224,9 +250,22 @@ async def receive_alert(request: Request):
             logger.info("Alert %s resolved — skipping", alert_name)
             continue
 
-        # --- Step 1: Fetch FILTERED logs (alert-aware) ---
-        raw_logs = fetch_victim_logs(alert_name)
-        logger.info("Fetched %d characters of filtered logs", len(raw_logs))
+        # --- Step 1: Fetch logs (dual-path: OTel first, file fallback) ---
+        log_source = "unknown"
+        try:
+            raw_logs = await fetch_from_context_fetcher(alert_name)
+            log_source = "otel"
+            logger.info("✅ Fetched %d chars from Context Fetcher (OTel)", len(raw_logs))
+        except Exception as otel_err:
+            logger.warning(
+                "Context Fetcher unavailable (%s) — falling back to file scraping",
+                otel_err,
+            )
+            raw_logs = fetch_victim_logs(alert_name)
+            log_source = "file"
+            logger.info("Fetched %d chars from file scraping (fallback)", len(raw_logs))
+
+        logger.info("Log source: %s", log_source)
 
         # --- Step 2: Sanitize PII ---
         redacted_logs = sanitize(raw_logs)
