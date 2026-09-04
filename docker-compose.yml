@@ -81,10 +81,13 @@ services:
     container_name: sentinel-cloud-architect
     ports:
       - "8002:8002"
+    volumes:
+      - victim-logs:/app/logs:ro
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-llama-3.3-70b-versatile}
       - SENTINEL_OPS_WEBHOOK=${SENTINEL_OPS_WEBHOOK}
+      - VICTIM_LOG_PATH=/app/logs/app.log
       - REMEDIATION_URL=http://cloud-architect:8002/remediate
     networks:
       - sentinel-net

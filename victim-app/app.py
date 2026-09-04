@@ -119,6 +119,11 @@ def index():
     })
 
 
+@app.route('/health')
+def health():
+    return jsonify({"status": "ok", "service": "victim-app"}), 200
+
+
 @app.route("/metrics")
 def metrics():
     """Prometheus scrape endpoint — serves all registered metrics."""
